@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Notification UC</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;background:#e8eaf0;color:#111}
+
+/* TOOLBAR */
+#toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#1c3557;position:sticky;top:0;z-index:200;flex-wrap:wrap}
+#toolbar-title{color:#a8c4e0;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;flex:1}
+#status{font-size:11px;color:#7fbfff;font-family:monospace;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* NAV */
+#nav-controls{display:flex;align-items:center;gap:4px}
+#nav-counter{color:#a8c4e0;font-size:12px;font-weight:600;min-width:52px;text-align:center}
+#btn-prev,#btn-next{background:#334d6e;color:#fff;border:none;border-radius:5px;padding:5px 11px;font-size:16px;font-weight:700;cursor:pointer;line-height:1}
+#btn-prev:disabled,#btn-next:disabled{opacity:.3;cursor:not-allowed}
+#btn-prev:hover:not(:disabled),#btn-next:hover:not(:disabled){background:#4a6fa5}
+
+/* BUTTONS */
+button{padding:6px 13px;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap}
+button:hover:not(:disabled){opacity:.85;transform:translateY(-1px)}
+button:disabled{opacity:.35;cursor:not-allowed}
+#btn-mapping{background:#e67e22;color:#fff}
+#btn-pdf{background:#7c3aed;color:#fff}
+#btn-upload{background:#16a34a;color:#fff}
+.btn-wrap{position:relative;display:inline-block}
+.dropdown{display:none;position:absolute;top:calc(100% + 4px);right:0;background:#fff;border:1px solid #ddd;border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,.18);min-width:230px;z-index:300;overflow:hidden}
+.dropdown.open{display:block}
+.dropdown-item{display:block;width:100%;padding:11px 16px;text-align:left;background:none;border:none;font-size:13px;font-weight:600;color:#111;cursor:pointer;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+.dropdown-item:last-child{border-bottom:none}
+.dropdown-item:hover{background:#f0f4ff}
+.dropdown-item .sub{display:block;font-size:11px;font-weight:400;color:#888;margin-top:2px}
+
+/* MAPPING OVERLAY */
+#mapping-panel{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:center;justify-content:center}
+#mapping-panel.open{display:flex}
+#mapping-box{background:#fff;border-radius:10px;width:min(800px,96vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.35);overflow:hidden}
+#mapping-header{background:#1c3557;color:#fff;padding:14px 20px;display:flex;align-items:center;gap:10px}
+#mapping-header h2{font-size:14px;font-weight:700;flex:1}
+#btn-close-mapping{background:rgba(255,255,255,.15);color:#fff;padding:4px 12px;font-size:13px;border-radius:4px;border:none;cursor:pointer}
+#btn-close-mapping:hover{background:rgba(255,255,255,.3)}
+
+/* PJ BANNER — tout en haut du panneau */
+#pj-banner{background:#fff3e0;border-bottom:3px solid #e67e22;padding:16px 24px;display:flex;align-items:center;gap:16px}
+#pj-banner label{font-size:13px;font-weight:700;color:#7c3a00;white-space:nowrap}
+#pj-banner select{flex:1;padding:10px 14px;font-size:14px;font-weight:600;border:2px solid #e67e22;border-radius:7px;background:#fff;color:#111;cursor:pointer}
+#pj-banner select:focus{outline:3px solid #e67e22;outline-offset:1px}
+
+/* MAPPING BODY */
+#mapping-body{overflow-y:auto;padding:16px 24px;flex:1}
+.msec{margin-bottom:20px}
+.msec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#1c3557;border-bottom:2px solid #1c3557;padding-bottom:4px;margin-bottom:10px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px}
+.mrow{display:flex;flex-direction:column;gap:3px}
+.mrow label{font-size:11px;color:#666;font-style:italic}
+.mrow select{padding:5px 8px;border:1px solid #ccc;border-radius:5px;font-size:12px;background:#f7f8fc;color:#111;cursor:pointer}
+.mrow select:focus{outline:2px solid #2563eb}
+
+/* MAPPING FOOTER */
+#mapping-footer{padding:14px 24px;border-top:2px solid #e5e7eb;display:flex;gap:12px;justify-content:flex-end;align-items:center;background:#f9fafb}
+#btn-reset-mapping{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;padding:10px 18px;font-size:13px;font-weight:700;border-radius:6px;cursor:pointer}
+#btn-reset-mapping:hover{background:#fecaca}
+#btn-save-mapping{background:#15803d;color:#fff;padding:12px 32px;font-size:15px;font-weight:800;border-radius:7px;border:none;cursor:pointer;box-shadow:0 3px 10px rgba(21,128,61,.4);letter-spacing:.02em}
+#btn-save-mapping:hover{background:#166534;box-shadow:0 4px 14px rgba(21,128,61,.5)}
+
+/* DOCUMENT A4 */
+#page-wrapper{padding:20px;display:flex;justify-content:center}
+#document{background:white;width:210mm;min-height:297mm;padding:15mm;box-shadow:0 4px 24px rgba(0,0,0,.18)}
+.doc-header{display:flex;margin-bottom:6px;border:1px solid #000}
+.doc-header .logo-cell{width:38mm;border-right:1px solid #000;display:flex;align-items:center;justify-content:center;padding:6px;font-size:9px;text-align:center;font-weight:700;color:#1a3a6b;line-height:1.3}
+.doc-header .header-text{flex:1;padding:8px 12px;font-size:11px;font-weight:700;line-height:1.5;color:#1a3a6b}
+.refs{margin:8px 0;font-size:11px;line-height:1.9}
+.refs em{font-style:italic}
+.refs .val{font-style:normal;font-weight:600;color:#1a3a6b}
+.doc-title{text-align:center;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 12px;padding:6px;border:2px solid #000;background:#f0f4ff}
+table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
+td,th{border:1px solid #000;padding:4px 7px;vertical-align:middle}
+.table-infos td:first-child{font-style:italic;width:52mm;background:#f7f8fc}
+.table-infos td:last-child{font-weight:600;color:#1a3a6b}
+.table-ucare .col-ucare{width:30mm;text-align:center}
+.table-ucare .header-row td{font-style:italic;font-weight:700;background:#f0f4ff;text-align:center}
+.table-decision td:first-child{font-weight:700;text-transform:uppercase;width:42mm;background:#f7f8fc}
+.decision-val{font-weight:700;color:#15803d}
+.table-decision .sig-cell{font-size:10px;line-height:1.6}
+.grille-title{font-weight:700;font-size:12px;text-align:center;padding:5px;border:1px solid #000;background:#1a3a6b;color:white;margin-top:10px;margin-bottom:0}
+.table-grille th{background:#dde4f0;font-weight:700;text-align:center;font-size:11px}
+.table-grille td:first-child{font-weight:700;font-style:italic;width:18mm;text-align:center}
+.table-grille td:nth-child(2){font-style:italic}
+.table-grille .check-cell{width:22mm;text-align:center;font-size:14px}
+.doc-footer{margin-top:12px;display:flex;justify-content:space-between;font-size:9px;color:#555;border-top:1px solid #ccc;padding-top:4px}
+.empty-val{color:#ccc;font-style:italic;font-weight:400}
+
+@media print{
+  body{background:white}
+  #toolbar,#mapping-panel{display:none!important}
+  #page-wrapper{padding:0}
+  #document{box-shadow:none;width:100%;padding:10mm}
+}
+</style>
+</head>
+<body>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+  <span id="toolbar-title">🗂 Notification UC</span>
+  <div id="status">⏳ En attente de Grist...</div>
+  <div id="nav-controls">
+    <button id="btn-prev" disabled title="Ligne précédente">◀</button>
+    <span id="nav-counter">— / —</span>
+    <button id="btn-next" disabled title="Ligne suivante">▶</button>
+  </div>
+  <button id="btn-mapping">⚙️ Mapper</button>
+  <div class="btn-wrap">
+    <button id="btn-pdf" disabled>📄 PDF ▾</button>
+    <div class="dropdown" id="dd-pdf">
+      <button class="dropdown-item" id="pdf-current">📄 Télécharger ce dossier<span class="sub">Génère le PDF de la ligne affichée</span></button>
+      <button class="dropdown-item" id="pdf-all">📦 Télécharger tous les dossiers<span class="sub">Génère un PDF par ligne (téléchargement groupé)</span></button>
+    </div>
+  </div>
+  <div class="btn-wrap">
+    <button id="btn-upload" disabled>📎 Enregistrer en PJ ▾</button>
+    <div class="dropdown" id="dd-pj">
+      <button class="dropdown-item" id="pj-current">📎 Ce dossier uniquement<span class="sub">Enregistre le PDF dans la colonne PJ de la ligne affichée</span></button>
+      <button class="dropdown-item" id="pj-all">📦 Tous les dossiers<span class="sub">Génère et enregistre le PDF pour chaque ligne</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- MAPPING PANEL -->
+<div id="mapping-panel">
+  <div id="mapping-box">
+
+    <div id="mapping-header">
+      <h2>⚙️ Associer les colonnes Grist aux champs du document</h2>
+      <button id="btn-close-mapping">✕ Fermer</button>
+    </div>
+
+    <!-- ★ PJ EN PREMIER, hors du scroll, toujours visible ★ -->
+    <div id="pj-banner">
+      <label>📎 Colonne Pièce jointe :</label>
+      <select data-field="col_pj"><option value="">— sélectionner —</option></select>
+    </div>
+
+    <div id="mapping-body">
+
+      <div class="msec">
+        <div class="msec-title">Références</div>
+        <div class="mgrid">
+          <div class="mrow"><label>Référence dossier (N° SRFD)</label><select data-field="ref_srfd"></select></div>
+          <div class="mrow"><label>Référence démarches simplifiées</label><select data-field="ref_ds"></select></div>
+          <div class="mrow"><label>Date de dépôt dossier complet</label><select data-field="date_depot"></select></div>
+        </div>
+      </div>
+
+      <div class="msec">
+        <div class="msec-title">Informations du dossier</div>
+        <div class="mgrid">
+          <div class="mrow"><label>Organisme de formation</label><select data-field="organisme"></select></div>
+          <div class="mrow"><label>Site de formation</label><select data-field="site"></select></div>
+          <div class="mrow"><label>Diplôme</label><select data-field="diplome"></select></div>
+          <div class="mrow"><label>Option / spécialité</label><select data-field="option"></select></div>
+          <div class="mrow"><label>Support(s)</label><select data-field="supports"></select></div>
+          <div class="mrow"><label>Date début habilitation</label><select data-field="date_debut"></select></div>
+          <div class="mrow"><label>Date fin habilitation</label><select data-field="date_fin"></select></div>
+          <div class="mrow"><label>Voie de formation (APP/FPC)</label><select data-field="voie"></select></div>
+          <div class="mrow"><label>Durée formation en centre</label><select data-field="duree_centre"></select></div>
+          <div class="mrow"><label>Durée formation en entreprise</label><select data-field="duree_entreprise"></select></div>
+          <div class="mrow"><label>Cycle de formation</label><select data-field="cycle"></select></div>
+        </div>
+      </div>
+
+      <div class="msec">
+        <div class="msec-title">UCARE habilitées</div>
+        <div class="mgrid">
+          <div class="mrow"><label>Intitulé UCARE 1</label><select data-field="ucare1"></select></div>
+          <div class="mrow"><label>Code UCARE 1</label><select data-field="code_ucare1"></select></div>
+          <div class="mrow"><label>Intitulé UCARE 2</label><select data-field="ucare2"></select></div>
+          <div class="mrow"><label>Code UCARE 2</label><select data-field="code_ucare2"></select></div>
+          <div class="mrow"><label>Intitulé UCARE 3</label><select data-field="ucare3"></select></div>
+          <div class="mrow"><label>Code UCARE 3</label><select data-field="code_ucare3"></select></div>
+          <div class="mrow"><label>Intitulé UCARE 4</label><select data-field="ucare4"></select></div>
+          <div class="mrow"><label>Code UCARE 4</label><select data-field="code_ucare4"></select></div>
+        </div>
+      </div>
+
+      <div class="msec">
+        <div class="msec-title">Décision</div>
+        <div class="mgrid">
+          <div class="mrow"><label>Décision</label><select data-field="decision"></select></div>
+          <div class="mrow"><label>Observations</label><select data-field="observations"></select></div>
+          <div class="mrow"><label>Date de signature</label><select data-field="date_signature"></select></div>
+        </div>
+      </div>
+
+      <div class="msec">
+        <div class="msec-title">Grille d'analyse — Coches (Booléen) et Remarques</div>
+        <div class="mgrid">
+          <div class="mrow"><label>Doc.4 – Liste UCARE (coche)</label><select data-field="doc4"></select></div>
+          <div class="mrow"><label>Doc.4 – Remarques</label><select data-field="rem_doc4"></select></div>
+          <div class="mrow"><label>Doc.5 – Taux qualification (coche)</label><select data-field="doc5"></select></div>
+          <div class="mrow"><label>Doc.5 – Remarques</label><select data-field="rem_doc5"></select></div>
+          <div class="mrow"><label>Partenariats (coche)</label><select data-field="partenariats"></select></div>
+          <div class="mrow"><label>Partenariats – Remarques</label><select data-field="rem_partenariats"></select></div>
+          <div class="mrow"><label>Diplômes et CV formateurs (coche)</label><select data-field="cv_formateurs"></select></div>
+          <div class="mrow"><label>CV – Remarques</label><select data-field="rem_cv"></select></div>
+          <div class="mrow"><label>Attestations agrément UC (coche)</label><select data-field="attestations"></select></div>
+          <div class="mrow"><label>Attestations – Remarques</label><select data-field="rem_attestations"></select></div>
+          <div class="mrow"><label>Acte conseil d'administration (coche)</label><select data-field="acte_ca"></select></div>
+          <div class="mrow"><label>CA – Remarques</label><select data-field="rem_ca"></select></div>
+          <div class="mrow"><label>Protocole d'évaluation (coche)</label><select data-field="protocole"></select></div>
+          <div class="mrow"><label>Protocole – Remarques</label><select data-field="rem_protocole"></select></div>
+          <div class="mrow"><label>Ruban pédagogique (coche)</label><select data-field="ruban"></select></div>
+          <div class="mrow"><label>Ruban – Remarques</label><select data-field="rem_ruban"></select></div>
+          <div class="mrow"><label>Calendrier d'alternance (coche)</label><select data-field="calendrier"></select></div>
+          <div class="mrow"><label>Calendrier – Remarques</label><select data-field="rem_calendrier"></select></div>
+        </div>
+      </div>
+
+    </div><!-- #mapping-body -->
+
+    <div id="mapping-footer">
+      <button id="btn-reset-mapping">↺ Réinitialiser</button>
+      <button id="btn-save-mapping">✓ Enregistrer le mapping</button>
+    </div>
+
+  </div><!-- #mapping-box -->
+</div><!-- #mapping-panel -->
+
+<!-- DOCUMENT -->
+<div id="page-wrapper">
+<div id="document">
+
+  <div class="doc-header">
+    <div class="logo-cell">République<br>Française<br><br>🌾<br><br>DRAAF<br>Occitanie</div>
+    <div class="header-text">
+      DRAAF Occitanie<br>
+      Service Régional de la Formation et du Développement<br>
+      Unité FPCA-VAE
+    </div>
+  </div>
+
+  <div class="refs">
+    <em>Référence du dossier :</em> <span class="val" id="r-ref-srfd"></span><br>
+    <em>Référence « démarches simplifiées » :</em> <span class="val" id="r-ref-ds"></span><br>
+    <em>Date de dépôt du dossier complet :</em> <span class="val" id="r-date-depot"></span>
+  </div>
+
+  <div class="doc-title">Notification de décision d'actualisation d'habilitation UC</div>
+
+  <table class="table-infos">
+    <tr><td><em>Organisme de formation porteur de l'habilitation</em></td><td id="f-organisme"></td></tr>
+    <tr><td><em>Site de formation</em></td><td id="f-site"></td></tr>
+    <tr><td><em>Diplôme</em></td><td id="f-diplome"></td></tr>
+    <tr><td><em>Option / spécialité</em></td><td id="f-option"></td></tr>
+    <tr><td><em>Support(s)</em></td><td id="f-supports"></td></tr>
+    <tr><td><em>Date de début d'habilitation</em></td><td id="f-date-debut"></td></tr>
+    <tr><td><em>Date de fin d'habilitation</em></td><td id="f-date-fin"></td></tr>
+    <tr><td><em>Voie de formation (APP ou FPC)</em></td><td id="f-voie"></td></tr>
+    <tr><td><em>Durée de formation en centre</em></td><td id="f-duree-centre"></td></tr>
+    <tr><td><em>Durée de formation en entreprise</em></td><td id="f-duree-entreprise"></td></tr>
+    <tr><td><em>Cycle de formation</em></td><td id="f-cycle"></td></tr>
+  </table>
+
+  <table class="table-ucare">
+    <tr class="header-row">
+      <td><em>Intitulé(s) UCARE(s) habilitée(s)</em></td>
+      <td class="col-ucare"><em>Code UCARE</em></td>
+    </tr>
+    <tr><td id="f-ucare1"></td><td id="f-code-ucare1" class="col-ucare"></td></tr>
+    <tr><td id="f-ucare2"></td><td id="f-code-ucare2" class="col-ucare"></td></tr>
+    <tr><td id="f-ucare3"></td><td id="f-code-ucare3" class="col-ucare"></td></tr>
+    <tr><td id="f-ucare4"></td><td id="f-code-ucare4" class="col-ucare"></td></tr>
+  </table>
+
+  <table class="table-decision">
+    <tr>
+      <td>Décision</td>
+      <td class="decision-val" id="f-decision"></td>
+    </tr>
+    <tr>
+      <td>Observations<br><em style="font-size:9px;font-weight:400">(voir grille d'analyse)</em></td>
+      <td id="f-observations"></td>
+    </tr>
+    <tr>
+      <td>Date et signature</td>
+      <td class="sig-cell">
+        Le délégué académique, Chef du Service Régional de la Formation et du Développement<br>
+        <em>Paul CANDAELE</em><br>
+        <span id="f-date-signature"></span>
+      </td>
+    </tr>
+  </table>
+
+  <div class="grille-title">Grille d'analyse du dossier d'habilitation</div>
+  <table class="table-grille">
+    <tr><th></th><th>Pièces déposées</th><th class="check-cell">✓</th><th>Remarques</th></tr>
+    <tr><td>Doc.4</td><td><em>Liste des UCARE (avec dossier de nouvelle(s) UCARE soumises à l'habilitation)</em></td><td class="check-cell" id="g-doc4"></td><td id="g-rem-doc4"></td></tr>
+    <tr><td>Doc.5</td><td><em>Tableau relatif au taux de qualification des horaires formateurs</em></td><td class="check-cell" id="g-doc5"></td><td id="g-rem-doc5"></td></tr>
+    <tr><td></td><td><em>Partenariats</em></td><td class="check-cell" id="g-partenariats"></td><td id="g-rem-partenariats"></td></tr>
+    <tr><td></td><td><em>Diplômes et CV des nouveaux formateurs</em></td><td class="check-cell" id="g-cv"></td><td id="g-rem-cv"></td></tr>
+    <tr><td></td><td><em>Nouvelles attestations formation agrément aux UC</em></td><td class="check-cell" id="g-attestations"></td><td id="g-rem-attestations"></td></tr>
+    <tr><td>Autres pièces</td><td><em>Acte du conseil d'administration</em></td><td class="check-cell" id="g-ca"></td><td id="g-rem-ca"></td></tr>
+    <tr><td></td><td><em>Protocole d'évaluation (annexes 1, 2 et 3)</em></td><td class="check-cell" id="g-protocole"></td><td id="g-rem-protocole"></td></tr>
+    <tr><td></td><td><em>Ruban pédagogique</em></td><td class="check-cell" id="g-ruban"></td><td id="g-rem-ruban"></td></tr>
+    <tr><td></td><td><em>Calendrier d'alternance (app)</em></td><td class="check-cell" id="g-calendrier"></td><td id="g-rem-calendrier"></td></tr>
+  </table>
+
+  <div class="doc-footer">
+    <span>DRAAF-SRFD Occitanie / unité FPCA-VAE</span>
+    <span>Notification d'actualisation d'habilitation UC</span>
+  </div>
+
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ── State ──
+let mapping = {};
+let currentRecord = null;
+let allRecords = [];
+let currentIndex = 0;
+let availableColumns = [];
+
+const setStatus = (msg, ok=true) => {
+  $('status').textContent = msg;
+  $('status').style.color = ok ? '#7fbfff' : '#ff9999';
+};
+
+// ── Persistance via grist.setOption / getOption ──
+async function loadMapping() {
+  try {
+    const saved = await grist.getOption('mapping');
+    if (saved && typeof saved === 'object') mapping = saved;
+  } catch(e) { mapping = {}; }
+}
+async function saveMapping() {
+  // Lire tous les selects — y compris le select PJ du banner
+  document.querySelectorAll('[data-field]').forEach(sel => {
+    mapping[sel.dataset.field] = sel.value;
+  });
+  await grist.setOption('mapping', mapping);
+}
+
+// ── Peupler tous les selects (body + banner PJ) ──
+function populateSelects(cols) {
+  const opts = ['<option value="">— non mappé —</option>',
+    ...cols.map(c => `<option value="${encodeURIComponent(c)}">${c}</option>`)
+  ].join('');
+  document.querySelectorAll('[data-field]').forEach(sel => {
+    const current = sel.value;
+    sel.innerHTML = opts;
+    // Restaurer la valeur sauvegardée
+    const saved = mapping[sel.dataset.field] || '';
+    sel.value = saved ? encodeURIComponent(saved) : '';
+  });
+}
+
+// ── Lire une valeur du record via mapping ──
+function val(field) {
+  const col = decodeURIComponent(mapping[field] || '');
+  if (!col || !currentRecord) return undefined;
+  return currentRecord[col];
+}
+
+function fill(id, value, fallback='') {
+  const el = $(id);
+  if (!el) return;
+  const v = (value !== undefined && value !== null && value !== '') ? String(value) : null;
+  el.textContent = v || fallback;
+  el.classList.toggle('empty-val', !v);
+}
+
+function formatDate(v) {
+  if (!v) return '';
+  if (typeof v === 'number') return new Date(v * 1000).toLocaleDateString('fr-FR');
+  return String(v);
+}
+
+function renderDocument() {
+  if (!currentRecord) return;
+  fill('r-ref-srfd',   val('ref_srfd'));
+  fill('r-ref-ds',     val('ref_ds'));
+  fill('r-date-depot', formatDate(val('date_depot')));
+  fill('f-organisme',        val('organisme'));
+  fill('f-site',             val('site'));
+  fill('f-diplome',          val('diplome'));
+  fill('f-option',           val('option'));
+  fill('f-supports',         val('supports'));
+  fill('f-date-debut',       formatDate(val('date_debut')));
+  fill('f-date-fin',         formatDate(val('date_fin')));
+  fill('f-voie',             val('voie'));
+  fill('f-duree-centre',     val('duree_centre'));
+  fill('f-duree-entreprise', val('duree_entreprise'));
+  fill('f-cycle',            val('cycle'));
+  fill('f-ucare1', val('ucare1')); fill('f-code-ucare1', val('code_ucare1'));
+  fill('f-ucare2', val('ucare2')); fill('f-code-ucare2', val('code_ucare2'));
+  fill('f-ucare3', val('ucare3')); fill('f-code-ucare3', val('code_ucare3'));
+  fill('f-ucare4', val('ucare4')); fill('f-code-ucare4', val('code_ucare4'));
+  fill('f-decision',     val('decision'), 'Actualisation validée');
+  fill('f-observations', val('observations'));
+  fill('f-date-signature', formatDate(val('date_signature')) || new Date().toLocaleDateString('fr-FR'));
+  const chk = v => v ? '✓' : '';
+  fill('g-doc4',         chk(val('doc4')));
+  fill('g-doc5',         chk(val('doc5')));
+  fill('g-partenariats', chk(val('partenariats')));
+  fill('g-cv',           chk(val('cv_formateurs')));
+  fill('g-attestations', chk(val('attestations')));
+  fill('g-ca',           chk(val('acte_ca')));
+  fill('g-protocole',    chk(val('protocole')));
+  fill('g-ruban',        chk(val('ruban')));
+  fill('g-calendrier',   chk(val('calendrier')));
+  fill('g-rem-doc4',         val('rem_doc4'));
+  fill('g-rem-doc5',         val('rem_doc5'));
+  fill('g-rem-partenariats', val('rem_partenariats'));
+  fill('g-rem-cv',           val('rem_cv'));
+  fill('g-rem-attestations', val('rem_attestations'));
+  fill('g-rem-ca',           val('rem_ca'));
+  fill('g-rem-protocole',    val('rem_protocole'));
+  fill('g-rem-ruban',        val('rem_ruban'));
+  fill('g-rem-calendrier',   val('rem_calendrier'));
+}
+
+// ── Navigation ──
+function updateNav() {
+  const total = allRecords.length;
+  $('nav-counter').textContent = total ? `${currentIndex + 1} / ${total}` : '— / —';
+  $('btn-prev').disabled = currentIndex <= 0;
+  $('btn-next').disabled = currentIndex >= total - 1;
+}
+
+function goToIndex(idx) {
+  if (idx < 0 || idx >= allRecords.length) return;
+  currentIndex = idx;
+  currentRecord = allRecords[idx];
+  updateNav();
+  renderDocument();
+  setStatus(`✅ Ligne #${currentRecord.id} (${currentIndex + 1}/${allRecords.length})`);
+}
+
+$('btn-prev').addEventListener('click', () => goToIndex(currentIndex - 1));
+$('btn-next').addEventListener('click', () => goToIndex(currentIndex + 1));
+
+// ── Grist init ──
+grist.ready({ requiredAccess: 'full' });
+loadMapping();
+
+grist.onRecords(records => {
+  if (!records || records.length === 0) return;
+  allRecords = records;
+  const cols = Object.keys(records[0]).filter(k => k !== 'id' && !k.startsWith('_'));
+  if (cols.length > 0) {
+    availableColumns = cols;
+    populateSelects(cols);
+  }
+  if (currentRecord) {
+    const idx = allRecords.findIndex(r => r.id === currentRecord.id);
+    if (idx >= 0) currentIndex = idx;
+  }
+  updateNav();
+});
+
+grist.onRecord(record => {
+  currentRecord = record;
+  if (availableColumns.length === 0) {
+    availableColumns = Object.keys(record).filter(k => k !== 'id' && !k.startsWith('_'));
+    populateSelects(availableColumns);
+  }
+  const idx = allRecords.findIndex(r => r.id === record.id);
+  if (idx >= 0) currentIndex = idx;
+  updateNav();
+  renderDocument();
+  $('btn-pdf').disabled = false;
+  $('btn-upload').disabled = false;
+  setStatus(`✅ Ligne #${record.id} (${currentIndex + 1}/${allRecords.length})`);
+});
+
+// ── Mapping panel ──
+$('btn-mapping').addEventListener('click', () => {
+  populateSelects(availableColumns);
+  $('mapping-panel').classList.add('open');
+  $('mapping-body').scrollTop = 0;
+});
+$('btn-close-mapping').addEventListener('click', () => $('mapping-panel').classList.remove('open'));
+$('mapping-panel').addEventListener('click', e => {
+  if (e.target === $('mapping-panel')) $('mapping-panel').classList.remove('open');
+});
+
+$('btn-save-mapping').addEventListener('click', async () => {
+  await saveMapping();
+  $('mapping-panel').classList.remove('open');
+  renderDocument();
+  setStatus('✅ Mapping enregistré');
+});
+
+$('btn-reset-mapping').addEventListener('click', async () => {
+  if (!confirm('Réinitialiser tout le mapping ?')) return;
+  mapping = {};
+  await grist.setOption('mapping', {});
+  populateSelects(availableColumns);
+});
+
+// ── Dropdowns toggle ──
+function toggleDropdown(ddId) {
+  ['dd-pdf','dd-pj'].forEach(id => {
+    if (id !== ddId) $(id).classList.remove('open');
+  });
+  $(ddId).classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.btn-wrap')) {
+    document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
+  }
+});
+$('btn-pdf').addEventListener('click', () => toggleDropdown('dd-pdf'));
+$('btn-upload').addEventListener('click', () => toggleDropdown('dd-pj'));
+
+// ── Génération PDF pour un record donné ──
+async function genererPDFpourRecord(record) {
+  // Afficher ce record dans le document
+  const saved = currentRecord;
+  currentRecord = record;
+  renderDocument();
+  await new Promise(r => setTimeout(r, 80)); // laisser le DOM se mettre à jour
+
+  const { jsPDF } = window.jspdf;
+  const canvas = await html2canvas($('document'), { scale: 2, useCORS: true, logging: false });
+  const imgData = canvas.toDataURL('image/jpeg', 0.95);
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pdfW = pdf.internal.pageSize.getWidth();
+  const pdfH = (canvas.height * pdfW) / canvas.width;
+  const pageH = pdf.internal.pageSize.getHeight();
+  let y = 0;
+  while (y < pdfH) {
+    if (y > 0) pdf.addPage();
+    pdf.addImage(imgData, 'JPEG', 0, -y, pdfW, pdfH);
+    y += pageH;
+  }
+
+  // Restaurer le record affiché
+  currentRecord = saved;
+  renderDocument();
+  return pdf;
+}
+
+// ── PDF : ce dossier ──
+$('pdf-current').addEventListener('click', async () => {
+  $('dd-pdf').classList.remove('open');
+  try {
+    setStatus('⏳ Génération PDF...');
+    const pdf = await genererPDFpourRecord(currentRecord);
+    pdf.save(`notification_uc_${currentRecord.id}.pdf`);
+    setStatus('✅ PDF téléchargé');
+  } catch(err) { setStatus(`❌ ${err.message}`, false); }
+});
+
+// ── PDF : tous les dossiers ──
+$('pdf-all').addEventListener('click', async () => {
+  $('dd-pdf').classList.remove('open');
+  if (!confirm(`Générer ${allRecords.length} PDF ? Cela peut prendre du temps.`)) return;
+  const savedRecord = currentRecord;
+  const savedIndex = currentIndex;
+  try {
+    for (let i = 0; i < allRecords.length; i++) {
+      const rec = allRecords[i];
+      setStatus(`⏳ PDF ${i + 1}/${allRecords.length} (ligne #${rec.id})...`);
+      const pdf = await genererPDFpourRecord(rec);
+      pdf.save(`notification_uc_${rec.id}.pdf`);
+    }
+    setStatus(`✅ ${allRecords.length} PDF téléchargés`);
+  } catch(err) { setStatus(`❌ ${err.message}`, false); }
+  finally {
+    currentRecord = savedRecord;
+    currentIndex = savedIndex;
+    renderDocument();
+    updateNav();
+  }
+});
+
+// ── Upload PJ pour un record ──
+async function uploadPJpourRecord(rec, tokenInfo, table, colPJ) {
+  const pdf = await genererPDFpourRecord(rec);
+  const blob = pdf.output('blob');
+  const fd = new FormData();
+  fd.append('upload', blob, `notification_uc_${rec.id}.pdf`);
+
+  // baseUrl peut être incorrect sur certaines instances — on le reconstruit
+  // depuis window.location pour être sûr d'éviter les erreurs CORS/0.0.0.0
+  let uploadUrl;
+  try {
+    const base = new URL(tokenInfo.baseUrl);
+    // Si l'host est invalide (0.0.0.0, localhost inattendu...) on utilise window.location
+    if (base.hostname === '0.0.0.0' || base.hostname === '') throw new Error('bad host');
+    uploadUrl = `${tokenInfo.baseUrl}/attachments?auth=${tokenInfo.token}`;
+  } catch(e) {
+    // Construire l'URL depuis la page courante
+    uploadUrl = `${window.location.origin}${tokenInfo.baseUrl.replace(/^https?:\/\/[^/]+/, '')}/attachments?auth=${tokenInfo.token}`;
+  }
+
+  const upResp = await fetch(uploadUrl, {
+    method: 'POST',
+    body: fd,
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  });
+  if (!upResp.ok) {
+    const txt = await upResp.text().catch(() => '');
+    throw new Error(`Upload échoué ligne #${rec.id} : ${upResp.status} ${txt.slice(0,120)}`);
+  }
+  const [attachmentId] = await upResp.json();
+  const existantes = rec[colPJ] || [];
+  const liste = Array.isArray(existantes) ? [...existantes, attachmentId] : [attachmentId];
+  await table.update({ id: rec.id, fields: { [colPJ]: ['L', ...liste] } });
+}
+
+function getColPJ() {
+  const colPJ = decodeURIComponent(mapping['col_pj'] || '');
+  if (!colPJ) {
+    setStatus('⚠️ Configure la colonne PJ dans le mapping', false);
+    $('mapping-panel').classList.add('open');
+    return null;
+  }
+  return colPJ;
+}
+
+// ── PJ : ce dossier ──
+$('pj-current').addEventListener('click', async () => {
+  $('dd-pj').classList.remove('open');
+  if (!currentRecord) { setStatus('❌ Aucune ligne sélectionnée', false); return; }
+  const colPJ = getColPJ(); if (!colPJ) return;
+  try {
+    setStatus('⏳ Génération et upload...');
+    const tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
+    const table = await grist.getTable();
+    await uploadPJpourRecord(currentRecord, tokenInfo, table, colPJ);
+    setStatus(`🎉 PDF enregistré en PJ — ligne #${currentRecord.id}`);
+  } catch(err) { setStatus(`❌ ${err.message}`, false); console.error(err); }
+});
+
+// ── PJ : tous les dossiers ──
+$('pj-all').addEventListener('click', async () => {
+  $('dd-pj').classList.remove('open');
+  const colPJ = getColPJ(); if (!colPJ) return;
+  if (!confirm(`Enregistrer le PDF en PJ pour ${allRecords.length} lignes ?`)) return;
+  const savedRecord = currentRecord;
+  const savedIndex = currentIndex;
+  try {
+    setStatus('⏳ Token...');
+    const tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
+    console.log('tokenInfo:', tokenInfo); // pour debug
+    const table = await grist.getTable();
+    for (let i = 0; i < allRecords.length; i++) {
+      const rec = allRecords[i];
+      setStatus(`⏳ ${i + 1}/${allRecords.length} — ligne #${rec.id}...`);
+      await uploadPJpourRecord(rec, tokenInfo, table, colPJ);
+    }
+    setStatus(`🎉 ${allRecords.length} PDF enregistrés en PJ`);
+  } catch(err) { setStatus(`❌ ${err.message}`, false); console.error(err); }
+  finally {
+    currentRecord = savedRecord;
+    currentIndex = savedIndex;
+    renderDocument();
+    updateNav();
+  }
+});
+</script>
+</body>
+</html>
